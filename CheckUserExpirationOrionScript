@@ -1,0 +1,101 @@
+Import-Module ActiveDirectory
+
+# ==============================
+# Configuration
+# ==============================
+
+$DaysUntilExpiration = 20
+$Today = Get-Date
+$ExpirationDate = $Today.AddDays($DaysUntilExpiration)
+
+# Optional CSV Export
+$ExportCsv = $true
+$CsvPath = "C:\Automation\ExpiringUsers\UsersExpiringSoon.csv"
+
+# ==============================
+# Get Expiring Users
+# ==============================
+
+$Users = Get-ADUser `
+    -Filter {
+        AccountExpirationDate -ge $Today -and
+        AccountExpirationDate -le $ExpirationDate
+    } `
+    -Properties AccountExpirationDate, Manager, Enabled
+
+# ==============================
+# Build Report
+# ==============================
+
+$Report = foreach ($User in $Users) {
+
+    $ManagerName = "Not Set"
+
+    if ($User.Manager) {
+        try {
+            $ManagerName = (Get-ADUser $User.Manager -Properties DisplayName).DisplayName
+        }
+        catch {
+            $ManagerName = "Unable to Resolve"
+        }
+    }
+
+    [PSCustomObject]@{
+        Name             = $User.Name
+        SamAccountName   = $User.SamAccountName
+        Enabled          = $User.Enabled
+        ExpirationDate   = $User.AccountExpirationDate
+        ReportingManager = $ManagerName
+    }
+}
+
+# Sort by expiration date
+$Report = $Report | Sort-Object ExpirationDate
+
+# ==============================
+# Output for Orion
+# ==============================
+
+$Count = $Report.Count
+
+Write-Host "Statistic: $Count"
+
+if ($Count -gt 0) {
+
+    Write-Host "Message: $Count user account(s) expiring within $DaysUntilExpiration days."
+
+    Write-Host ""
+    Write-Host "===== Expiring Accounts ====="
+
+    foreach ($User in $Report) {
+
+        Write-Host ("User: {0} | Expiration: {1} | Manager: {2}" -f `
+            $User.Name,
+            $User.ExpirationDate.ToString("yyyy-MM-dd"),
+            $User.ReportingManager)
+    }
+
+    # Export CSV
+    if ($ExportCsv) {
+
+        # Create folder if missing
+        $Folder = Split-Path $CsvPath
+
+        if (!(Test-Path $Folder)) {
+            New-Item -ItemType Directory -Path $Folder -Force | Out-Null
+        }
+
+        $Report | Export-Csv $CsvPath -NoTypeInformation -Encoding UTF8
+
+        Write-Host ""
+        Write-Host "CSV Exported: $CsvPath"
+    }
+
+    # Exit 1 triggers SAM component alert state
+    exit 1
+}
+else {
+
+    Write-Host "Message: No users expiring within $DaysUntilExpiration days."
+    exit 0
+}

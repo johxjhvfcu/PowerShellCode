@@ -1,0 +1,30 @@
+$SMTPServer = "smtp.company.com"
+$From = "orion@company.com"
+
+# Multiple recipients
+$To = @(
+    "helpdesk@company.com",
+    "sysadmins@company.com",
+    "manager@company.com"
+)
+
+$Subject = "Users Expiring Within 20 Days"
+$Body = "Attached is the latest expiring user report."
+
+$Attachment = "C:\Temp\UsersExpiringSoon.csv"
+
+if (Test-Path $Attachment) {
+
+    Send-MailMessage `
+        -SmtpServer $SMTPServer `
+        -From $From `
+        -To $To `
+        -Subject $Subject `
+        -Body $Body `
+        -Attachments $Attachment
+}
+else {
+
+    Write-Host "Attachment not found: $Attachment"
+    exit 1
+}
