@@ -1,17 +1,16 @@
-$SMTPServer = "smtp.company.com"
-$From = "orion@company.com"
+$SMTPServer = "webmail.hvfcu.org"
+$From = "orion@hvfcu.org"
 
 # Multiple recipients
 $To = @(
-    "helpdesk@company.com",
-    "sysadmins@company.com",
-    "manager@company.com"
+    "porrl@hvfcu.org",
+    "johxj@hvfcu.org"
 )
 
-$Subject = "Users Expiring Within 20 Days"
-$Body = "Attached is the latest expiring user report."
+$Subject = "Vendors Expiring Within 20 Days"
+$Body = "Attached is the latest expiring vendor report."
 
-$Attachment = "C:\Temp\UsersExpiringSoon.csv"
+$Attachment = "C:\Automation\ExpiringUsers\UsersExpiringSoon.csv"
 
 if (Test-Path $Attachment) {
 
