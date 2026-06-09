@@ -43,13 +43,13 @@ try {
 
     $Users = Get-ADUser `
         -Filter {
+            Enabled -eq $true -and
             AccountExpirationDate -ge $Today -and
             AccountExpirationDate -le $ExpirationDate
         } `
         -Properties `
             AccountExpirationDate,
             Manager,
-            Enabled,
             Department
 
 }
@@ -89,7 +89,6 @@ $Report = foreach ($User in $Users) {
         Name             = $User.Name
         SamAccountName   = $User.SamAccountName
         Department       = $User.Department
-        Enabled          = $User.Enabled
         ExpirationDate   = $User.AccountExpirationDate
         DaysRemaining    = ($User.AccountExpirationDate - $Today).Days
         ReportingManager = $ManagerName
