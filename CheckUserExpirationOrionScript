@@ -1,27 +1,67 @@
-Import-Module ActiveDirectory
+# ==============================
+# Verify AD Module
+# ==============================
+
+if (-not (Get-Module -ListAvailable -Name ActiveDirectory)) {
+
+    Write-Host "Statistic: 0"
+    Write-Host "Message: ActiveDirectory module not installed."
+
+    exit 2
+}
+
+Import-Module ActiveDirectory -ErrorAction Stop
 
 # ==============================
 # Configuration
 # ==============================
 
 $DaysUntilExpiration = 20
-$Today = Get-Date
-$ExpirationDate = $Today.AddDays($DaysUntilExpiration)
+$Today               = Get-Date
+$ExpirationDate      = $Today.AddDays($DaysUntilExpiration)
 
-# Optional CSV Export
+# Export Settings
 $ExportCsv = $true
-$CsvPath = "C:\Automation\ExpiringUsers\UsersExpiringSoon.csv"
+$CsvPath   = "C:\Automation\ExpiringUsers\VendorsExpiringSoon.csv"
+
+# Email Settings
+$SMTPServer = "webmail.hvfcu.org"
+$SMTPPort   = 25
+
+$From = "orion@hvfcu.org"
+
+$To = @(
+    "porrl@hvfcu.org",
+    "johxj@hvfcu.org"
+)
 
 # ==============================
 # Get Expiring Users
 # ==============================
 
-$Users = Get-ADUser `
-    -Filter {
-        AccountExpirationDate -ge $Today -and
-        AccountExpirationDate -le $ExpirationDate
-    } `
-    -Properties AccountExpirationDate, Manager, Enabled
+try {
+
+    $Users = Get-ADUser `
+        -Filter {
+            AccountExpirationDate -ge $Today -and
+            AccountExpirationDate -le $ExpirationDate
+        } `
+        -Properties `
+            AccountExpirationDate,
+            Manager,
+            Enabled,
+            Department
+
+}
+catch {
+
+    Write-Host "Statistic: 0"
+    Write-Host "Message: Failed querying Active Directory."
+
+    Write-Host $_.Exception.Message
+
+    exit 2
+}
 
 # ==============================
 # Build Report
@@ -32,10 +72,15 @@ $Report = foreach ($User in $Users) {
     $ManagerName = "Not Set"
 
     if ($User.Manager) {
+
         try {
-            $ManagerName = (Get-ADUser $User.Manager -Properties DisplayName).DisplayName
+
+            $ManagerName = (
+                Get-ADUser $User.Manager -Properties DisplayName
+            ).DisplayName
         }
         catch {
+
             $ManagerName = "Unable to Resolve"
         }
     }
@@ -43,17 +88,22 @@ $Report = foreach ($User in $Users) {
     [PSCustomObject]@{
         Name             = $User.Name
         SamAccountName   = $User.SamAccountName
+        Department       = $User.Department
         Enabled          = $User.Enabled
         ExpirationDate   = $User.AccountExpirationDate
+        DaysRemaining    = ($User.AccountExpirationDate - $Today).Days
         ReportingManager = $ManagerName
     }
 }
 
-# Sort by expiration date
+# ==============================
+# Sort Results
+# ==============================
+
 $Report = $Report | Sort-Object ExpirationDate
 
 # ==============================
-# Output for Orion
+# Orion Output
 # ==============================
 
 $Count = $Report.Count
@@ -62,40 +112,156 @@ Write-Host "Statistic: $Count"
 
 if ($Count -gt 0) {
 
-    Write-Host "Message: $Count user account(s) expiring within $DaysUntilExpiration days."
+    Write-Host "Message: $Count account(s) expiring within $DaysUntilExpiration days."
 
     Write-Host ""
     Write-Host "===== Expiring Accounts ====="
+    Write-Host ""
 
     foreach ($User in $Report) {
 
-        Write-Host ("User: {0} | Expiration: {1} | Manager: {2}" -f `
+        Write-Host (
+            "User: {0} | Expiration: {1} | Days Remaining: {2} | Department: {3} | Manager: {4}" -f `
             $User.Name,
             $User.ExpirationDate.ToString("yyyy-MM-dd"),
-            $User.ReportingManager)
+            $User.DaysRemaining,
+            $User.Department,
+            $User.ReportingManager
+        )
     }
 
+    # ==============================
     # Export CSV
+    # ==============================
+
     if ($ExportCsv) {
 
-        # Create folder if missing
-        $Folder = Split-Path $CsvPath
+        try {
 
-        if (!(Test-Path $Folder)) {
-            New-Item -ItemType Directory -Path $Folder -Force | Out-Null
+            $Folder = Split-Path $CsvPath
+
+            if (!(Test-Path $Folder)) {
+
+                New-Item `
+                    -ItemType Directory `
+                    -Path $Folder `
+                    -Force | Out-Null
+            }
+
+            $Report | Export-Csv `
+                -Path $CsvPath `
+                -NoTypeInformation `
+                -Encoding UTF8
+
+            Write-Host ""
+            Write-Host "CSV Exported: $CsvPath"
         }
+        catch {
 
-        $Report | Export-Csv $CsvPath -NoTypeInformation -Encoding UTF8
+            Write-Host ""
+            Write-Host "Failed to export CSV."
 
-        Write-Host ""
-        Write-Host "CSV Exported: $CsvPath"
+            Write-Host $_.Exception.Message
+
+            exit 2
+        }
     }
 
-    # Exit 1 triggers SAM component alert state
+    # ==============================
+    # Email Configuration
+    # ==============================
+
+    $Subject = "Vendor Accounts Expiring Within 20 Days"
+
+    $Body = @"
+<html>
+<head>
+<style>
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 10pt;
+}
+</style>
+</head>
+<body>
+
+<p>Hello,</p>
+
+<p>
+Attached is the latest vendor expiration report generated by Orion Monitoring.
+</p>
+
+<p>
+Please review the attached report at your convenience.
+</p>
+
+<p>
+For vendors needing extensions, please contact the Service Desk with the updated expiration date request to avoid account lockout.
+</p>
+
+<p>
+<b>Total Expiring Accounts:</b> $Count
+</p>
+
+<p>
+<b>Generated:</b> $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+</p>
+
+<p>
+Thanks,<br>
+Orion Monitoring
+</p>
+
+</body>
+</html>
+"@
+
+    # ==============================
+    # Send Email
+    # ==============================
+
+    if (Test-Path $CsvPath) {
+
+        try {
+
+            Send-MailMessage `
+                -SmtpServer $SMTPServer `
+                -Port $SMTPPort `
+                -From $From `
+                -To $To `
+                -Subject $Subject `
+                -Body $Body `
+                -BodyAsHtml `
+                -Attachments $CsvPath `
+                -Encoding UTF8
+
+            Write-Host ""
+            Write-Host "Email sent successfully." -ForegroundColor Green
+        }
+        catch {
+
+            Write-Host ""
+            Write-Host "Failed to send email."
+
+            Write-Host $_.Exception.Message
+
+            exit 2
+        }
+    }
+    else {
+
+        Write-Host ""
+        Write-Host "Attachment not found: $CsvPath"
+
+        exit 2
+    }
+
+    # Trigger Orion Alert State
     exit 1
 }
 else {
 
     Write-Host "Message: No users expiring within $DaysUntilExpiration days."
+
     exit 0
 }
