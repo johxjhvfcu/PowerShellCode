@@ -1,3 +1,16 @@
+
+$Now = Get-Date
+
+if (
+    $Now.DayOfWeek -eq 'Monday' -and
+    $Now.Hour -eq 9 -and
+    $Now.Minute -ge 00 -and
+    $Now.Minute -le 04
+
+) {
+
+    Write-Host "Scheduled run time met."
+
 # ==============================
 # Verify AD Module
 # ==============================
@@ -266,7 +279,10 @@ Orion Monitoring
 }
 else {
 
-    Write-Host "Message: No users expiring within $DaysUntilExpiration days."
-
     exit 0
+}
+}
+else {
+
+    Write-Host "Not scheduled run time."
 }
