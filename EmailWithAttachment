@@ -8,7 +8,7 @@ $To = @(
 )
 
 $Subject = "Vendors Expiring Within 20 Days"
-$Body = "Attached is the latest expiring vendor report."
+$Body = "Attached is the latest expiring vendor report. Please review this report at your convenience. For those needing vendor extensions, please contact the Service Desk to inform them of the new date required so the user account isn't locked out by the reported date."
 
 $Attachment = "C:\Automation\ExpiringUsers\UsersExpiringSoon.csv"
 

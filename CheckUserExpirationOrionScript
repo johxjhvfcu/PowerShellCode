@@ -31,9 +31,9 @@ $SMTPPort   = 25
 $From = "orion@hvfcu.org"
 
 $To = @(
-    "porrl@hvfcu.org",
-    "johxj@hvfcu.org"
-)
+    $managerEmails,
+    "hdstaff@hvfcu.org"
+) | Where-Object { $_ } | Sort-Object -Unique
 
 # ==============================
 # Get Expiring Users
@@ -62,6 +62,20 @@ catch {
 
     exit 2
 }
+
+# ==============================
+# Get Manager Email
+# ==============================
+
+$managerEmails = foreach ($user in $Users) {
+    if ($user.Manager) {
+        (Get-ADUser $user.Manager -Properties Mail).Mail
+    }
+}
+ 
+$managerEmails |
+    Where-Object { $_ } |
+    Sort-Object -Unique
 
 # ==============================
 # Build Report
