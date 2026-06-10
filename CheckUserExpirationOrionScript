@@ -2,10 +2,10 @@
 $Now = Get-Date
 
 if (
-    $Now.DayOfWeek -eq 'Tuesday' -and
-    $Now.Hour -eq 16 -and
-    $Now.Minute -ge 24 -and
-    $Now.Minute -le 29
+    $Now.DayOfWeek -eq 'Monday' -and
+    $Now.Hour -eq 9 -and
+    $Now.Minute -ge 00 -and
+    $Now.Minute -le 04
 ) {
 
     Write-Host "Scheduled run time met."
