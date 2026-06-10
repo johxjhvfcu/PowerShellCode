@@ -34,6 +34,10 @@ $ExpirationDate      = $Today.AddDays($DaysUntilExpiration)
 # Export Settings
 $ExportCsv = $true
 $CsvPath   = "C:\Automation\ExpiringUsers\VendorsExpiringSoon.csv"
+$SMTPServer = "webmail.hvfcu.org"
+$SMTPPort   = 25
+
+$From = "orion@hvfcu.org"
 
 # ==============================
 # Get Expiring Users
@@ -61,34 +65,48 @@ catch {
 
     exit 2
 }
-
 # ==============================
 # Get Manager Email
 # ==============================
 
 $managerEmails = foreach ($user in $Users) {
+
     if ($user.Manager) {
-        (Get-ADUser $user.Manager -Properties Mail).Mail
+
+        try {
+
+            $mail = (Get-ADUser $user.Manager -Properties Mail).Mail
+
+            if ($mail) {
+                $mail.Trim()
+            }
+        }
+        catch {
+            $null
+        }
     }
 }
- 
-$managerEmails |
+
+# Remove blanks and duplicates
+$managerEmails = $managerEmails |
     Where-Object { $_ } |
     Sort-Object -Unique
 
 # ==============================
-# Email Configuration
+# Email Recipients
 # ==============================
 
-$SMTPServer = "webmail.hvfcu.org"
-$SMTPPort   = 25
+$To = @()
 
-$From = "orion@hvfcu.org"
+$To += $managerEmails
+$To += "HDstaff@hvfcu.org"
 
-$To = @(
-    $managerEmails,
-    "hdstaff@hvfcu.org"
-) | Where-Object { $_ } | Sort-Object -Unique
+$To = $To |
+    Where-Object { $_ } |
+    Sort-Object -Unique
+
+Write-Host "Recipients:"
+$To | ForEach-Object { Write-Host $_ }
 
 # ==============================
 # Build Report
@@ -242,10 +260,10 @@ Orion Monitoring
         }
         catch {
 
-        # Failed to send email.
+       
+    Write-Host $_.Exception.Message
+    exit 2
 
-
-            exit 2
         }
     }
     else {
