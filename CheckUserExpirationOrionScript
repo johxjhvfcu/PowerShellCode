@@ -87,7 +87,7 @@ $From = "orion@hvfcu.org"
 
 $To = @(
     $managerEmails,
-    "johxj@hvfcu.org"
+    "hdstaff@hvfcu.org"
 ) | Where-Object { $_ } | Sort-Object -Unique
 
 # ==============================
