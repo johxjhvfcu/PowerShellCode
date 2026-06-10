@@ -2,11 +2,10 @@
 $Now = Get-Date
 
 if (
-    $Now.DayOfWeek -eq 'Monday' -and
-    $Now.Hour -eq 9 -and
-    $Now.Minute -ge 00 -and
-    $Now.Minute -le 04
-
+    $Now.DayOfWeek -eq 'Tuesday' -and
+    $Now.Hour -eq 16 -and
+    $Now.Minute -ge 24 -and
+    $Now.Minute -le 29
 ) {
 
     Write-Host "Scheduled run time met."
@@ -17,8 +16,7 @@ if (
 
 if (-not (Get-Module -ListAvailable -Name ActiveDirectory)) {
 
-    Write-Host "Statistic: 0"
-    Write-Host "Message: ActiveDirectory module not installed."
+    # ActiveDirectory module not installed
 
     exit 2
 }
@@ -45,7 +43,7 @@ $From = "orion@hvfcu.org"
 
 $To = @(
     $managerEmails,
-    "hdstaff@hvfcu.org"
+    "johxj@hvfcu.org"
 ) | Where-Object { $_ } | Sort-Object -Unique
 
 # ==============================
@@ -68,10 +66,9 @@ try {
 }
 catch {
 
-    Write-Host "Statistic: 0"
-    Write-Host "Message: Failed querying Active Directory."
+  
+   # Failed querying Active Directory.
 
-    Write-Host $_.Exception.Message
 
     exit 2
 }
@@ -134,15 +131,8 @@ $Report = $Report | Sort-Object ExpirationDate
 
 $Count = $Report.Count
 
-Write-Host "Statistic: $Count"
 
 if ($Count -gt 0) {
-
-    Write-Host "Message: $Count account(s) expiring within $DaysUntilExpiration days."
-
-    Write-Host ""
-    Write-Host "===== Expiring Accounts ====="
-    Write-Host ""
 
     foreach ($User in $Report) {
 
@@ -178,16 +168,10 @@ if ($Count -gt 0) {
                 -Path $CsvPath `
                 -NoTypeInformation `
                 -Encoding UTF8
-
-            Write-Host ""
-            Write-Host "CSV Exported: $CsvPath"
         }
         catch {
 
-            Write-Host ""
-            Write-Host "Failed to export CSV."
-
-            Write-Host $_.Exception.Message
+            #Failed to export CSV.
 
             exit 2
         }
@@ -211,7 +195,7 @@ body {
 </head>
 <body>
 
-<p>You are being contacted because you have been identified as having a contractor who reports to you who's account is going to expire within the next X days. If you would like to extend the expiration date of your contractor(s) please contact the Service Desk, otherwise please disregard.
+<p>You are being contacted because you have been identified as having a contractor who reports to you who's account is going to expire within the next 20 days. If you would like to extend the expiration date of your contractor(s) please contact the Service Desk, otherwise please disregard.
 </p>
 
 <p>
@@ -252,24 +236,18 @@ Orion Monitoring
                 -BodyAsHtml `
                 -Attachments $CsvPath `
                 -Encoding UTF8
-
-            Write-Host ""
-            Write-Host "Email sent successfully." -ForegroundColor Green
         }
         catch {
 
-            Write-Host ""
-            Write-Host "Failed to send email."
+        # Failed to send email.
 
-            Write-Host $_.Exception.Message
 
             exit 2
         }
     }
     else {
 
-        Write-Host ""
-        Write-Host "Attachment not found: $CsvPath"
+        # Attachment not found
 
         exit 2
     }
@@ -284,5 +262,6 @@ else {
 }
 else {
 
-    Write-Host "Not scheduled run time."
+    write-Host "Not scheduled run time."
+    exit 0
 }
