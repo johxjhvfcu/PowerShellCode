@@ -35,17 +35,6 @@ $ExpirationDate      = $Today.AddDays($DaysUntilExpiration)
 $ExportCsv = $true
 $CsvPath   = "C:\Automation\ExpiringUsers\VendorsExpiringSoon.csv"
 
-# Email Settings
-$SMTPServer = "webmail.hvfcu.org"
-$SMTPPort   = 25
-
-$From = "orion@hvfcu.org"
-
-$To = @(
-    $managerEmails,
-    "johxj@hvfcu.org"
-) | Where-Object { $_ } | Sort-Object -Unique
-
 # ==============================
 # Get Expiring Users
 # ==============================
@@ -86,6 +75,20 @@ $managerEmails = foreach ($user in $Users) {
 $managerEmails |
     Where-Object { $_ } |
     Sort-Object -Unique
+
+# ==============================
+# Email Configuration
+# ==============================
+
+$SMTPServer = "webmail.hvfcu.org"
+$SMTPPort   = 25
+
+$From = "orion@hvfcu.org"
+
+$To = @(
+    $managerEmails,
+    "johxj@hvfcu.org"
+) | Where-Object { $_ } | Sort-Object -Unique
 
 # ==============================
 # Build Report
