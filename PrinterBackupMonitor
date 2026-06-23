@@ -1,5 +1,17 @@
 param([string]$NodeDNS)
 
+
+# Do not execute any part of this script unless current time is between 11:00 PM and 11:05 PM
+$Now = Get-Date
+$StartWindow = Get-Date -Hour 23 -Minute 0 -Second 0
+$EndWindow   = Get-Date -Hour 23 -Minute 5 -Second 59
+
+
+if ($Now -lt $StartWindow -or $Now -gt $EndWindow) {
+    exit 0
+}
+
+
 $ServerName = $null
 $Session = $null
 
@@ -91,7 +103,4 @@ finally {
     }
 }
 
-
-
-####### Orion Script Arguments #######
-#${Node.DNS}
+###Orion script argument: $NodeDNS####
