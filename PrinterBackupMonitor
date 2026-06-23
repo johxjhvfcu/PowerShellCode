@@ -1,0 +1,97 @@
+param([string]$NodeDNS)
+
+$ServerName = $null
+$Session = $null
+
+try {
+    if ([string]::IsNullOrWhiteSpace($NodeDNS)) {
+        Write-Host "Statistic: 0"
+        Write-Host "Message: NodeDNS argument was empty"
+        exit 10
+    }
+
+    $ServerName = $NodeDNS.Split('.')[0]
+    $Timestamp  = Get-Date -Format "yyyy-MM-dd_HH_mm_ss"
+    $BackupShare = "\\joe-p16s\Test\Orion\$ServerName"
+
+    $PrinterExportFile  = Join-Path $BackupShare "$ServerName`_$Timestamp.printerExport"
+    $RegistryExportFile = Join-Path $BackupShare "$ServerName`_$Timestamp.reg"
+
+    $PrintBRM = "$env:windir\System32\spool\tools\printbrm.exe"
+
+    if (-not (Test-Path $PrintBRM)) {
+        Write-Host "Statistic: 0"
+        Write-Host "Message: printbrm.exe not found at $PrintBRM"
+        exit 11
+    }
+
+    if (-not (Test-Path $BackupShare)) {
+        New-Item -Path $BackupShare -ItemType Directory -Force | Out-Null
+    }
+
+    #
+    # 1. Printer backup from remote server
+    #
+    & $PrintBRM -S "\\$ServerName" -B -F $PrinterExportFile *> $null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Statistic: 0"
+        Write-Host "Message: Printer backup failed for $ServerName with exit code $LASTEXITCODE"
+        exit 1
+    }
+
+    #
+    # 2. Create remote PowerShell session
+    #
+    $Session = New-PSSession -ComputerName $ServerName -ErrorAction Stop
+
+    #
+    # 3. Export registry to a LOCAL file on the remote server
+    #
+    $RemoteTempRegFile = Invoke-Command -Session $Session -ScriptBlock {
+        $TempFile = Join-Path $env:TEMP ("PrintBackup_" + [guid]::NewGuid().ToString() + ".reg")
+
+        reg.exe export "HKLM\SYSTEM\CurrentControlSet\Control\Print" $TempFile /y > $null 2>&1
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Remote reg export failed with exit code $LASTEXITCODE"
+        }
+
+        if (-not (Test-Path $TempFile)) {
+            throw "Remote reg export did not create output file"
+        }
+
+        return $TempFile
+    } -ErrorAction Stop
+
+    #
+    # 4. Copy the file back from remote server to the backup share
+    #
+    Copy-Item -FromSession $Session -Path $RemoteTempRegFile -Destination $RegistryExportFile -Force -ErrorAction Stop
+
+    #
+    # 5. Clean up remote temp file
+    #
+    Invoke-Command -Session $Session -ScriptBlock {
+        param($FilePath)
+        Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
+    } -ArgumentList $RemoteTempRegFile | Out-Null
+
+    Write-Host "Statistic: 1"
+    Write-Host "Message: Backup completed successfully for $ServerName"
+    exit 0
+}
+catch {
+    Write-Host "Statistic: 0"
+    Write-Host "Message: Backup failed for $ServerName - $($_.Exception.Message)"
+    exit 99
+}
+finally {
+    if ($Session) {
+        Remove-PSSession $Session -ErrorAction SilentlyContinue
+    }
+}
+
+
+
+####### Orion Script Arguments #######
+#${Node.DNS}
