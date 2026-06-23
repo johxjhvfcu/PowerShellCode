@@ -1,30 +1,153 @@
+
 param([string]$NodeDNS)
 
-
-# Do not execute any part of this script unless current time is between 11:00 PM and 11:05 PM
-$Now = Get-Date
-$StartWindow = Get-Date -Hour 23 -Minute 0 -Second 0
-$EndWindow   = Get-Date -Hour 23 -Minute 6 -Second 59
-
-
-if ($Now -lt $StartWindow -or $Now -gt $EndWindow) {
-    exit
+# -----------------------------
+# Validate Orion argument first
+# -----------------------------
+if ([string]::IsNullOrWhiteSpace($NodeDNS)) {
+    Write-Host "Statistic: 0"
+    Write-Host "Message: NodeDNS argument was empty"
+    exit 10
 }
 
+# -----------------------------
+# Node identity / file naming
+# -----------------------------
+$ServerName = $NodeDNS.Split('.')[0]
 
-$ServerName = $null
+# Use full NodeDNS for uniqueness, but make it filesystem-safe
+$SafeNodeName = ($NodeDNS.ToLower() -replace '[\\/:*?"<>| ]', '_') -replace '\.', '_'
+
+# State storage
+$StateRoot = "\\joe-p16s\Test\Orion\State"
+$StateFile = Join-Path $StateRoot "$SafeNodeName.json"
+
+# Backup storage
+$BackupRoot  = "\\joe-p16s\Test\Orion"
+$BackupShare = Join-Path $BackupRoot $ServerName
+
+# -----------------------------
+# Helper: write Orion output
+# -----------------------------
+function Write-OrionResult {
+    param(
+        [int]$Statistic,
+        [string]$Message
+    )
+
+    Write-Host "Statistic: $Statistic"
+    Write-Host "Message: $Message"
+}
+
+# -----------------------------
+# Helper: save state to file
+# -----------------------------
+function Save-State {
+    param(
+        [int]$ExitCode,
+        [int]$Statistic,
+        [string]$Message,
+        [string]$ServerName,
+        [string]$NodeDNS,
+        [string]$StateFile,
+        [string]$StateRoot
+    )
+
+    try {
+        if (-not (Test-Path $StateRoot)) {
+            New-Item -Path $StateRoot -ItemType Directory -Force | Out-Null
+        }
+
+        $StateObject = [pscustomobject]@{
+            NodeDNS      = $NodeDNS
+            ServerName   = $ServerName
+            LastRunTime  = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            ExitCode     = $ExitCode
+            Statistic    = $Statistic
+            Message      = $Message
+        }
+
+        $StateObject | ConvertTo-Json -Depth 3 | Set-Content -Path $StateFile -Force -Encoding UTF8
+    }
+    catch {
+        # Do not fail the monitor just because the state file couldn't be written
+    }
+}
+
+# -----------------------------
+# Helper: read saved state file
+# -----------------------------
+function Get-SavedState {
+    param(
+        [string]$StateFile
+    )
+
+    try {
+        if (Test-Path $StateFile) {
+            return (Get-Content -Path $StateFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop)
+        }
+    }
+    catch {
+        # Ignore parse/read issues and return $null
+    }
+
+    return $null
+}
+
+# -----------------------------
+# Helper: save state + return
+# -----------------------------
+function Save-StateAndExit {
+    param(
+        [int]$ExitCode,
+        [int]$Statistic,
+        [string]$Message
+    )
+
+    Save-State `
+        -ExitCode $ExitCode `
+        -Statistic $Statistic `
+        -Message $Message `
+        -ServerName $ServerName `
+        -NodeDNS $NodeDNS `
+        -StateFile $StateFile `
+        -StateRoot $StateRoot
+
+    Write-OrionResult -Statistic $Statistic -Message $Message
+    exit $ExitCode
+}
+
+# -----------------------------
+# Time window gate
+# Only run between 11:00:00 PM and 11:05:59 PM
+# Outside window, return last saved state to Orion
+# -----------------------------
+$Now = Get-Date
+$StartWindow = Get-Date -Hour 23 -Minute 0 -Second 0
+$EndWindow   = Get-Date -Hour 23 -Minute 5 -Second 59
+
+if ($Now -lt $StartWindow -or $Now -gt $EndWindow) {
+    $SavedState = Get-SavedState -StateFile $StateFile
+
+    if ($null -ne $SavedState) {
+        $CachedMessage = "[Cached state from $($SavedState.LastRunTime)] $($SavedState.Message)"
+        Write-OrionResult -Statistic ([int]$SavedState.Statistic) -Message $CachedMessage
+        exit ([int]$SavedState.ExitCode)
+    }
+    else {
+        # No saved state exists yet for this node
+        Write-OrionResult -Statistic 0 -Message "Outside permitted run window and no saved state exists yet for $ServerName"
+        exit 0
+    }
+}
+
+# -----------------------------
+# Main execution
+# -----------------------------
 $Session = $null
 
 try {
-    if ([string]::IsNullOrWhiteSpace($NodeDNS)) {
-        Write-Host "Statistic: 0"
-        Write-Host "Message: NodeDNS argument was empty"
-        exit 10
-    }
-
-    $ServerName = $NodeDNS.Split('.')[0]
-    $Timestamp  = Get-Date -Format "yyyy-MM-dd_HH_mm_ss"
-    $BackupShare = "\\joe-p16s\Test\Orion\$ServerName"
+    $Timestamp = Get-Date -Format "yyyy-MM-dd_HH_mm_ss"
 
     $PrinterExportFile  = Join-Path $BackupShare "$ServerName`_$Timestamp.printerExport"
     $RegistryExportFile = Join-Path $BackupShare "$ServerName`_$Timestamp.reg"
@@ -32,33 +155,27 @@ try {
     $PrintBRM = "$env:windir\System32\spool\tools\printbrm.exe"
 
     if (-not (Test-Path $PrintBRM)) {
-        Write-Host "Statistic: 0"
-        Write-Host "Message: printbrm.exe not found at $PrintBRM"
-        exit 11
+        Save-StateAndExit -ExitCode 11 -Statistic 0 -Message "printbrm.exe not found at $PrintBRM"
+    }
+
+    if (-not (Test-Path $BackupRoot)) {
+        Save-StateAndExit -ExitCode 12 -Statistic 0 -Message "Backup root path not found: $BackupRoot"
     }
 
     if (-not (Test-Path $BackupShare)) {
         New-Item -Path $BackupShare -ItemType Directory -Force | Out-Null
     }
 
-    #
     # 1. Printer backup from remote server
-    #
     & $PrintBRM -S "\\$ServerName" -B -F $PrinterExportFile *> $null
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "Statistic: 0"
-        Write-Host "Message: Printer backup failed for $ServerName with exit code $LASTEXITCODE"
-        exit 1
+        Save-StateAndExit -ExitCode 1 -Statistic 0 -Message "Printer backup failed for $ServerName with exit code $LASTEXITCODE"
     }
 
-    #
     # 2. Create remote PowerShell session
-    #
     $Session = New-PSSession -ComputerName $ServerName -ErrorAction Stop
 
-    #
-    # 3. Export registry to a LOCAL file on the remote server
-    #
+    # 3. Export registry to a LOCAL temp file on the remote server
     $RemoteTempRegFile = Invoke-Command -Session $Session -ScriptBlock {
         $TempFile = Join-Path $env:TEMP ("PrintBackup_" + [guid]::NewGuid().ToString() + ".reg")
 
@@ -75,27 +192,19 @@ try {
         return $TempFile
     } -ErrorAction Stop
 
-    #
     # 4. Copy the file back from remote server to the backup share
-    #
     Copy-Item -FromSession $Session -Path $RemoteTempRegFile -Destination $RegistryExportFile -Force -ErrorAction Stop
 
-    #
     # 5. Clean up remote temp file
-    #
     Invoke-Command -Session $Session -ScriptBlock {
         param($FilePath)
         Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
     } -ArgumentList $RemoteTempRegFile | Out-Null
 
-    Write-Host "Statistic: 1"
-    Write-Host "Message: Backup completed successfully for $ServerName"
-    exit 0
+    Save-StateAndExit -ExitCode 0 -Statistic 1 -Message "Backup completed successfully for $ServerName"
 }
 catch {
-    Write-Host "Statistic: 0"
-    Write-Host "Message: Backup failed for $ServerName - $($_.Exception.Message)"
-    exit 99
+    Save-StateAndExit -ExitCode 99 -Statistic 0 -Message "Backup failed for $ServerName - $($_.Exception.Message)"
 }
 finally {
     if ($Session) {
@@ -103,4 +212,5 @@ finally {
     }
 }
 
-###Orion script argument: $NodeDNS####
+
+#### Orion script argument: NodeDNS ####
